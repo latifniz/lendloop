@@ -1,0 +1,100 @@
+{
+  "id": "lendloopErrorHandler",
+  "name": "LendLoop - Error handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f5352666-f5a4-4880-831b-ceae92a491b6",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Reduces an Error Trigger payload to non-sensitive fields before it leaves n8n.\n// The error message is only inspected locally to pick a category; it is never forwarded.\nconst data = $json;\nconst message = String((data.execution && data.execution.error && data.execution.error.message) || '').toLowerCase();\n\nconst categories = [\n  [/timeout|timed out|etimedout/, 'TIMEOUT'],\n  [/econnrefused|enotfound|econnreset|network|socket/, 'NETWORK'],\n  [/unauthorized|forbidden|401|403|credential/, 'AUTH'],\n  [/429|rate limit|too many/, 'RATE_LIMIT'],\n  [/\\b5\\d\\d\\b|status code 5|bad gateway|unavailable/, 'SERVER_ERROR'],\n  [/smtp|mail|recipient/, 'SMTP'],\n  [/invalid|validation|schema/, 'VALIDATION'],\n];\nconst match = categories.find(([pattern]) => pattern.test(message));\n\nconst correlation = /corr[:=]([0-9a-f-]{36})/i.exec(message);\nconst safeName = String((data.workflow && data.workflow.name) || 'unknown').replace(/[^\\w .:/#-]/g, '').slice(0, 120) || 'unknown';\n// Errors raised outside an execution (e.g. activation failures) carry no id; keep records distinct.\nconst executionId = String((data.execution && data.execution.id) || 'noexec-' + Date.now()).replace(/[^\\w-]/g, '').slice(0, 64);\n\nconst result = {\n  workflowName: safeName,\n  executionId,\n  errorCategory: match ? match[1] : 'UNKNOWN',\n};\nif (correlation) result.correlationId = correlation[1];\nreturn [{ json: result }];\n"
+      },
+      "id": "daccac27-791b-4bbe-8fa9-1d5ef21aa5d9",
+      "name": "Sanitize error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/errors",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflowName: $json.workflowName, executionId: $json.executionId, errorCategory: $json.errorCategory, ...($json.correlationId ? { correlationId: $json.correlationId } : {}) }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "98b9df50-a997-458a-8aab-80b8c906ed39",
+      "name": "Record failure in Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sanitize error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize error": {
+      "main": [
+        [
+          {
+            "node": "Record failure in Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 120
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

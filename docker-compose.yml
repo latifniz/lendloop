@@ -1,0 +1,61 @@
+# Local development stack for LendLoop automation: n8n + Mailpit (a fake SMTP
+# inbox so notification emails can be inspected without sending real mail).
+# Next.js and Convex are NOT containerised; their official dev workflows
+# (`npm run dev`, `npx convex dev`) are the better local experience.
+#
+#   docker compose up -d      start     docker compose down       stop (data kept)
+#   docker compose logs -f n8n          docker compose down -v    stop and DELETE n8n data
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:1.123.92
+    restart: unless-stopped
+    ports:
+      # Bound to localhost only: the editor must not be reachable from the LAN.
+      - "127.0.0.1:5678:5678"
+    environment:
+      # --- required (compose refuses to start when missing) ---
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env (openssl rand -hex 32)}
+      CONVEX_SITE_URL: ${CONVEX_SITE_URL:?Set CONVEX_SITE_URL in .env (https://<deployment>.convex.site)}
+      CONVEX_N8N_WEBHOOK_SECRET: ${CONVEX_N8N_WEBHOOK_SECRET:?Set CONVEX_N8N_WEBHOOK_SECRET in .env}
+      N8N_CONVEX_API_SECRET: ${N8N_CONVEX_API_SECRET:?Set N8N_CONVEX_API_SECRET in .env}
+      # --- optional ---
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      TZ: ${GENERIC_TIMEZONE:-UTC}
+      LENDLOOP_FROM_EMAIL: ${LENDLOOP_FROM_EMAIL:-LendLoop <no-reply@lendloop.local>}
+      WEBHOOK_URL: ${N8N_PUBLIC_URL:-http://localhost:5678/}
+      # --- workflow runtime ---
+      # The workflows read the two secrets via $env and use Node's crypto module for
+      # HMAC verification, so both must be explicitly allowed. Anyone who can edit
+      # workflows can read these variables; see README "Production" for alternatives.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_RUNNERS_ENABLED: "false"
+      # --- hygiene ---
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_SECURE_COOKIE: "false" # plain http on localhost only; must be true behind HTTPS
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336" # hours; failed executions stay inspectable for two weeks
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mailpit
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025" # web inbox
+      - "127.0.0.1:1025:1025" # SMTP (also reachable from n8n as mailpit:1025)
+
+volumes:
+  n8n_data:

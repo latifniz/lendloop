@@ -1,0 +1,388 @@
+{
+  "id": "lendloopOverdue",
+  "name": "LendLoop - Overdue reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "54d15adc-e170-46d7-852d-d703ad48ae14",
+      "name": "Daily 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/overdue/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "5723000c-0a21-48e9-82b3-c89b7b1b02e2",
+      "name": "Run overdue sweep",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Turns the Convex response { reminders: [...] } into one item per reminder.\n// An empty list ends the run quietly: nothing is overdue.\nconst reminders = Array.isArray($json.reminders) ? $json.reminders : [];\nreturn reminders.map((reminder) => ({ json: reminder }));\n"
+      },
+      "id": "0b517224-9f9f-44cb-8377-e86e8100cb98",
+      "name": "Split reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/claim",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ eventId: $('Split reminders').item.json.eventKey }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b487cb35-9228-4e92-85fb-7072e09cb012",
+      "name": "Claim reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d1067853-2097-4e19-8fc9-777706ee4af4",
+              "leftValue": "={{ $json.proceed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "88b85faf-01ab-49e4-8b90-168d3e76f289",
+      "name": "May send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "73a87643-c611-4751-8828-d0a55fafa84e",
+      "name": "Skip (already handled)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Builds the overdue reminder for one borrower from the reminder item returned by Convex.\nconst reminder = $('Split reminders').item.json;\n\nconst escapeHtml = (value) =>\n  String(value).replace(/[&<>\"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' })[char]);\nconst oneLine = (value) => String(value).replace(/[\\r\\n]+/g, ' ').trim();\n\nconst tool = oneLine(reminder.toolName);\nconst lender = oneLine(reminder.lenderName);\nconst days = reminder.daysOverdue === 1 ? '1 day' : reminder.daysOverdue + ' days';\nconst headline = tool + ' was due back on ' + reminder.dueDate + ' and is now ' + days + ' overdue.';\nconst next = 'Please return it to ' + lender + ' as soon as you can so they can confirm the return in LendLoop.';\n\nreturn [\n  {\n    json: {\n      to: reminder.borrower.email,\n      subject: 'Reminder: please return ' + tool,\n      text: 'Hi ' + oneLine(reminder.borrower.name) + ',\\n\\n' + headline + '\\n\\n' + next + '\\n' + reminder.actionUrl +\n        '\\n\\n- LendLoop',\n      html: '<p>Hi ' + escapeHtml(oneLine(reminder.borrower.name)) + ',</p><p>' + escapeHtml(headline) + '</p><p>' +\n        escapeHtml(next) + '</p><p><a href=\"' + escapeHtml(reminder.actionUrl) + '\">Open LendLoop</a></p>',\n    },\n  },\n];\n"
+      },
+      "id": "1d7b1d68-115a-4f2d-8939-0e1031a69451",
+      "name": "Build reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.LENDLOOP_FROM_EMAIL || 'LendLoop <no-reply@lendloop.local>' }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "b345fc8e-a4f6-4ced-805e-48f074259b9e",
+      "name": "Send reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        100
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "lendloop-smtp",
+          "name": "LendLoop SMTP"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ eventId: $('Split reminders').item.json.eventKey, outcome: 'sent' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "82683609-6c43-422f-8cef-0292ac23403e",
+      "name": "Report sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        20
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Maps a Send Email error to a coarse, non-sensitive code and a retry hint for Convex.\n// The raw error text is never forwarded: it can contain addresses or server banners.\n// With \"continue (using error output)\" the error arrives as a string or an object, depending on the node.\nconst rawError = $json.error;\nconst text = String(\n  typeof rawError === 'string' ? rawError : (rawError && (rawError.message || rawError.description)) || '',\n).toLowerCase();\n\nconst rules = [\n  { match: /timeout|timed out|etimedout/, code: 'SMTP_TIMEOUT', retryable: true },\n  { match: /econnrefused|enotfound|econnreset|getaddrinfo|socket/, code: 'SMTP_UNREACHABLE', retryable: true },\n  { match: /\\b4\\d\\d\\b|rate|too many|throttl/, code: 'SMTP_TEMPORARY', retryable: true },\n  { match: /auth|535|credential/, code: 'SMTP_AUTH', retryable: false },\n  { match: /recipient|mailbox|address|550|553/, code: 'SMTP_REJECTED_RECIPIENT', retryable: false },\n];\nconst found = rules.find((rule) => rule.match.test(text));\nreturn [{ json: { errorCode: found ? found.code : 'SEND_FAILED', retryable: found ? found.retryable : true } }];\n"
+      },
+      "id": "76f6de0b-d69c-475b-88be-e1fa3087e2cc",
+      "name": "Classify failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ eventId: $('Split reminders').item.json.eventKey, outcome: 'failed', errorCode: $json.errorCode, retryable: $json.retryable }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "7c11d392-0c84-4eac-8fcd-2641fed011bb",
+      "name": "Report failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Daily 09:00": {
+      "main": [
+        [
+          {
+            "node": "Run overdue sweep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run overdue sweep": {
+      "main": [
+        [
+          {
+            "node": "Split reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split reminders": {
+      "main": [
+        [
+          {
+            "node": "Claim reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim reminder": {
+      "main": [
+        [
+          {
+            "node": "May send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "May send?": {
+      "main": [
+        [
+          {
+            "node": "Build reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip (already handled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build reminder": {
+      "main": [
+        [
+          {
+            "node": "Send reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send reminder": {
+      "main": [
+        [
+          {
+            "node": "Report sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classify failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify failure": {
+      "main": [
+        [
+          {
+            "node": "Report failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 120,
+    "errorWorkflow": "lendloopErrorHandler"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

@@ -1,0 +1,54 @@
+# Production stack for Coolify (or any Docker host behind an HTTPS reverse proxy).
+# Coolify: New Resource -> Docker Compose -> this repo -> compose file "/docker-compose.prod.yml".
+# Set the domain for the `n8n` service to https://n8n.<your-domain> (container port 5678);
+# Coolify's proxy terminates TLS. Secrets are entered as environment variables in Coolify.
+services:
+  n8n:
+    build:
+      context: .
+      dockerfile: deploy/n8n.Dockerfile
+    restart: unless-stopped
+    expose:
+      - "5678"
+    environment:
+      # --- required ---
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?}
+      CONVEX_SITE_URL: ${CONVEX_SITE_URL:?}
+      CONVEX_N8N_WEBHOOK_SECRET: ${CONVEX_N8N_WEBHOOK_SECRET:?}
+      N8N_CONVEX_API_SECRET: ${N8N_CONVEX_API_SECRET:?}
+      N8N_PUBLIC_URL: ${N8N_PUBLIC_URL:?https://n8n.example.com/}
+      # --- SMTP (Resend: smtp.resend.com / 465 / user "resend" / password = API key) ---
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      LENDLOOP_FROM_EMAIL: ${LENDLOOP_FROM_EMAIL:-LendLoop <no-reply@lendloop.local>}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+      TZ: ${GENERIC_TIMEZONE:-UTC}
+      # --- behind Coolify's HTTPS proxy ---
+      WEBHOOK_URL: ${N8N_PUBLIC_URL}
+      N8N_EDITOR_BASE_URL: ${N8N_PUBLIC_URL}
+      N8N_PROTOCOL: https
+      N8N_PROXY_HOPS: "1"
+      # --- workflow runtime (secrets read via $env, HMAC via Node crypto) ---
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_RUNNERS_ENABLED: "false"
+      # --- hygiene ---
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 40s
+
+volumes:
+  n8n_data:

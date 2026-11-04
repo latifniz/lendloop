@@ -39,6 +39,18 @@ test.describe("signed-out visitor", () => {
     expect(headers["referrer-policy"]).toBeTruthy();
   });
 
+  test("has a favicon: icon links in the page, and the icon files are served as images", async ({ page, request }) => {
+    await page.goto("/");
+    const hrefs = await page.locator('link[rel~="icon"], link[rel="apple-touch-icon"]').evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
+    expect(hrefs.some((href) => href.includes("icon.svg"))).toBe(true);
+    expect(hrefs.some((href) => href.includes("apple-icon"))).toBe(true);
+    for (const path of ["/icon.svg", "/apple-icon.png", "/favicon.ico"]) {
+      const response = await request.get(path);
+      expect(response.status(), path).toBe(200);
+      expect(response.headers()["content-type"], path).toMatch(/^image\//);
+    }
+  });
+
   for (const path of ["/dashboard", "/tools", "/tools/mine", "/requests", "/requests/incoming", "/loans", "/admin"]) {
     test(`redirects ${path} to sign-in`, async ({ page }) => {
       await page.goto(path);

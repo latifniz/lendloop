@@ -1,4 +1,5 @@
 import { setupClerkTestingToken } from "@clerk/testing/playwright";
+import { execFileSync } from "node:child_process";
 import type { Browser, Locator, Page } from "@playwright/test";
 
 export const RUN = Date.now().toString(36);
@@ -73,4 +74,23 @@ export async function deleteClerkUsers(emails: string[]): Promise<void> {
     const found = (await (await fetch(`https://api.clerk.com/v1/users?email_address=${encodeURIComponent(email)}`, { headers })).json()) as Array<{ id: string }>;
     for (const user of found) await fetch(`https://api.clerk.com/v1/users/${user.id}`, { method: "DELETE", headers });
   }
+}
+
+/**
+ * Role changes are deliberately impossible from the browser, so admin tests promote a member the same way
+ * an operator would: the Convex CLI running the internal `users:setRole` against the deployment in .env.local.
+ * Opt in with E2E_ADMIN_BOOTSTRAP=convex-cli (use a dev deployment).
+ */
+export const adminBootstrapEnabled = process.env.E2E_ADMIN_BOOTSTRAP === "convex-cli";
+
+export async function makeAdmin(email: string): Promise<void> {
+  const headers = { Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}` };
+  const found = (await (await fetch(`https://api.clerk.com/v1/users?email_address=${encodeURIComponent(email)}`, { headers })).json()) as Array<{ id: string }>;
+  if (!found[0]) throw new Error(`No Clerk user for ${email}`);
+  execFileSync("npx", ["convex", "run", "users:setRole", JSON.stringify({ clerkId: found[0].id, role: "admin" })], { stdio: "pipe" });
+}
+
+/** An admin-panel row (listing, member, loan or automation event) containing the given text. */
+export function adminRow(page: Page, text: string): Locator {
+  return page.locator("div.p-4").filter({ hasText: text }).first();
 }

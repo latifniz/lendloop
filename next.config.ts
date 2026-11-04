@@ -24,7 +24,10 @@ function hostOf(url: string | undefined): string | null {
 function contentSecurityPolicy(isDev: boolean): string {
   const clerk = clerkFrontendHost(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const convex = hostOf(process.env.NEXT_PUBLIC_CONVEX_URL);
-  const clerkOrigin = clerk ? [`https://${clerk}`] : [];
+  // If a variable is missing at build time, fall back to the vendor's domain family instead of
+  // blocking the app's own backend: a broader allow-list is safer than a broken site.
+  const clerkOrigin = clerk ? [`https://${clerk}`] : ["https://*.clerk.accounts.dev", "https://*.clerk.com"];
+  const convexOrigins = convex ? [`https://${convex}`, `wss://${convex}`] : ["https://*.convex.cloud", "wss://*.convex.cloud"];
   // Clerk's bot check probes `*.client.protect.clerk.com` on several ports, so the port needs a wildcard too.
   const protect = ["https://*.protect.clerk.com", "https://*.protect.clerk.com:*", "https://cdn.protect.clerk.com"];
   const directives: Record<string, string[]> = {
@@ -36,7 +39,7 @@ function contentSecurityPolicy(isDev: boolean): string {
     "connect-src": [
       "'self'",
       ...clerkOrigin,
-      ...(convex ? [`https://${convex}`, `wss://${convex}`] : []),
+      ...convexOrigins,
       "https://clerk-telemetry.com",
       "https://challenges.cloudflare.com",
       ...protect,

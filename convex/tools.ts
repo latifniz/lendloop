@@ -31,7 +31,7 @@ export const listPublic = query({
   handler: async (ctx) => {
     const tools = await ctx.db
       .query("tools")
-      .withIndex("by_status_and_category", (q) => q.eq("status", "available"))
+      .withIndex("by_status", (q) => q.eq("status", "available"))
       .order("desc")
       .take(PUBLIC_LANDING_LIMIT);
     return tools.map((tool) => ({ name: tool.name, category: tool.category }));
@@ -69,7 +69,7 @@ export const listBrowse = query({
 
     const page = await ctx.db
       .query("tools")
-      .withIndex("by_status_and_category", (q) =>
+      .withIndex(category === undefined ? "by_status" : "by_status_and_category", (q) =>
         category === undefined ? q.eq("status", "available") : q.eq("status", "available").eq("category", category),
       )
       .order("desc")

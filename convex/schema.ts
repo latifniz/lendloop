@@ -66,7 +66,10 @@ export default defineSchema({
   })
     // "My listings" and owner-scoped lookups.
     .index("by_ownerId", ["ownerId"])
-    // Public landing list (status only) and category-filtered browsing (status + category).
+    // Public landing list and unfiltered browsing: newest first (the index ends in _creationTime).
+    // A (status, category) index cannot serve this: it sorts by category before time.
+    .index("by_status", ["status"])
+    // Category-filtered browsing (status + category), newest first within the category.
     .index("by_status_and_category", ["status", "category"]),
 
   borrowRequests: defineTable({

@@ -511,3 +511,59 @@ describe("workflow error reporting", () => {
     ).rejects.toMatchObject({ data: { code: "FORBIDDEN" } });
   });
 });
+
+describe("stuck-event watchdog", () => {
+  const sweep = () => t.mutation(internal.automation.sweepStuck, {});
+  const makeStuck = async (patch: Partial<{ status: "pending" | "processing" | "failed"; attempts: number; lastAttemptAt: number }>, ageMs: number) => {
+    const { borrower, toolId } = await setup();
+    await createRequest(borrower, toolId);
+    const [event] = await allEvents();
+    await t.run((ctx) => ctx.db.patch(event!._id, { ...patch, updatedAt: FIXED_NOW - ageMs }));
+    return event!._id;
+  };
+  const status = async (id: Awaited<ReturnType<typeof makeStuck>>) => (await t.run((ctx) => ctx.db.get(id)))!;
+
+  it("leaves a fresh pending event alone", async () => {
+    await makeStuck({ status: "pending" }, 60_000);
+    expect(await sweep()).toEqual({ redispatched: 0, timedOut: 0 });
+  });
+
+  it("re-dispatches a pending event whose dispatch job never ran", async () => {
+    const id = await makeStuck({ status: "pending" }, AUTOMATION.stuckGraceMs + 1000);
+    fetchMock.mockResolvedValue(new Response("{}", { status: 202 }));
+    expect(await sweep()).toEqual({ redispatched: 1, timedOut: 0 });
+    expect((await status(id)).updatedAt).toBeGreaterThanOrEqual(FIXED_NOW);
+    await dispatchOnce();
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("does not re-arm the same event twice in one grace window", async () => {
+    await makeStuck({ status: "pending" }, AUTOMATION.stuckGraceMs + 1000);
+    await sweep();
+    expect(await sweep()).toEqual({ redispatched: 0, timedOut: 0 });
+  });
+
+  it("gives a failed event its backoff plus grace before re-arming it", async () => {
+    const early = await makeStuck({ status: "failed", attempts: 2 }, AUTOMATION.stuckGraceMs + 1000);
+    expect(await sweep()).toEqual({ redispatched: 0, timedOut: 0 });
+    await t.run((ctx) => ctx.db.patch(early, { updatedAt: FIXED_NOW - AUTOMATION.stuckGraceMs - 3 * 60 * 1000 }));
+    expect(await sweep()).toEqual({ redispatched: 1, timedOut: 0 });
+  });
+
+  it("never re-arms events that exhausted their attempts", async () => {
+    await makeStuck({ status: "failed", attempts: AUTOMATION.maxAttempts }, 10 * 60 * 60 * 1000);
+    expect(await sweep()).toEqual({ redispatched: 0, timedOut: 0 });
+  });
+
+  it("times out an event stuck in processing past the ack timeout plus grace", async () => {
+    const id = await makeStuck({ status: "processing", attempts: 1, lastAttemptAt: FIXED_NOW - AUTOMATION.ackTimeoutMs - AUTOMATION.stuckGraceMs - 1000 }, 0);
+    expect(await sweep()).toEqual({ redispatched: 0, timedOut: 1 });
+    expect(await status(id)).toMatchObject({ status: "failed", errorCode: "ACK_TIMEOUT" });
+  });
+
+  it("leaves a processing event alone while n8n still has time to answer", async () => {
+    const id = await makeStuck({ status: "processing", attempts: 1, lastAttemptAt: FIXED_NOW - 60_000 }, 0);
+    expect(await sweep()).toEqual({ redispatched: 0, timedOut: 0 });
+    expect((await status(id)).status).toBe("processing");
+  });
+});

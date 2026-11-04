@@ -38,6 +38,8 @@ export const AUTOMATION = {
   /** How long one n8n execution may hold an event before another claim is allowed. */
   claimLeaseMs: 10 * 60 * 1000,
   baseRetryDelayMs: 30_000,
+  /** The watchdog waits this long past an event's own timer before treating its scheduled job as lost. */
+  stuckGraceMs: 10 * 60 * 1000,
   maxRequestBodyBytes: 32 * 1024,
   /** Per-minute budget for authenticated n8n -> Convex calls. */
   n8nRateLimitPerMinute: 600,

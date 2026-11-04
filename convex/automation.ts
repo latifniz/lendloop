@@ -157,6 +157,49 @@ export const checkAckTimeout = internalMutation({
   },
 });
 
+/**
+ * Watchdog for lost scheduler jobs. Every event normally carries its own timer (dispatch, retry,
+ * ack timeout); if one never ran, the event would sit in pending/processing/failed forever and look
+ * healthy. This sweep re-arms such events and writes nothing personal to the logs.
+ */
+export const sweepStuck = internalMutation({
+  args: {},
+  returns: v.object({ redispatched: v.number(), timedOut: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const grace = AUTOMATION.stuckGraceMs;
+    let redispatched = 0;
+    let timedOut = 0;
+
+    for (const status of ["pending", "failed"] as const) {
+      const events = await ctx.db.query("automationEvents").withIndex("by_status", (q) => q.eq("status", status)).take(100);
+      for (const event of events) {
+        if (event.eventType === "loan.overdue_reminder" || event.eventType === "workflow.error") continue;
+        if (event.attempts >= AUTOMATION.maxAttempts) continue;
+        const dueAt = event.updatedAt + (status === "failed" ? retryDelayMs(event.attempts) : 0) + grace;
+        if (now < dueAt) continue;
+        // Touching updatedAt gives the re-armed event its own grace period before the next sweep looks at it.
+        await ctx.db.patch(event._id, { updatedAt: now });
+        await ctx.scheduler.runAfter(0, internal.automation.dispatch, { eventId: event._id });
+        redispatched += 1;
+      }
+    }
+
+    const processing = await ctx.db.query("automationEvents").withIndex("by_status", (q) => q.eq("status", "processing")).take(100);
+    for (const event of processing) {
+      const startedAt = event.lastAttemptAt ?? event.updatedAt;
+      if (now < startedAt + AUTOMATION.ackTimeoutMs + grace) continue;
+      await ctx.db.patch(event._id, { status: "failed", errorCode: "ACK_TIMEOUT", updatedAt: now });
+      // Overdue reminders are re-listed by the next daily sweep, so only notifications get a retry job.
+      if (event.eventType !== "loan.overdue_reminder" && event.eventType !== "workflow.error") await scheduleRetry(ctx, event, event.attempts);
+      timedOut += 1;
+    }
+
+    if (redispatched > 0 || timedOut > 0) console.warn("automation watchdog recovered stuck events", { redispatched, timedOut });
+    return { redispatched, timedOut };
+  },
+});
+
 function classifyHttpStatus(status: number): DispatchOutcome {
   if (status >= 200 && status < 300) return { kind: "accepted" };
   const retryable = status === 408 || status === 425 || status === 429 || status >= 500;

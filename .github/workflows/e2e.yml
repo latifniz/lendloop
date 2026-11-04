@@ -1,36 +1,73 @@
 name: E2E (browser)
 
-# Manual on purpose: it signs up throwaway members through Clerk testing tokens and writes to the
-# Convex deployment behind the target URL, so point it at a dev/staging deployment, not production data.
+# Runs the Playwright suite against a throwaway Convex preview deployment on every pull request,
+# or against any URL you give it by hand. It needs repository secrets (see docs/testing.md); without
+# them the job reports a notice and passes without running, so forks and fresh clones stay green.
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       base_url:
-        description: "URL of the running app to test (a preview or staging deployment)"
-        required: true
+        description: "Test an already-running app at this URL instead of building the pull request (use a dev/staging deployment)"
+        required: false
       n8n_url:
         description: "Optional n8n base URL for the health/unsigned-webhook check"
         required: false
 
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      E2E_BASE_URL: ${{ inputs.base_url }}
-      E2E_N8N_URL: ${{ inputs.n8n_url }}
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PREVIEW_DEPLOY_KEY }}
+      E2E_N8N_URL: ${{ inputs.n8n_url }}
     steps:
+      - name: Check configuration
+        id: gate
+        run: |
+          missing=""
+          [ -z "$CLERK_SECRET_KEY" ] && missing="$missing CLERK_SECRET_KEY"
+          [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ] && missing="$missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+          if [ -z "${{ inputs.base_url }}" ] && [ -z "$CONVEX_DEPLOY_KEY" ]; then missing="$missing CONVEX_PREVIEW_DEPLOY_KEY"; fi
+          if [ -n "$missing" ]; then
+            echo "::notice::Browser tests skipped. Add these repository secrets to enable them:$missing (see docs/testing.md)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.enabled == 'true'
       - uses: actions/setup-node@v4
+        if: steps.gate.outputs.enabled == 'true'
         with: { node-version: 22, cache: npm }
       - run: npm ci
+        if: steps.gate.outputs.enabled == 'true'
       - run: npx playwright install --with-deps chromium
-      - name: Run browser tests
+        if: steps.gate.outputs.enabled == 'true'
+
+      - name: Build against a Convex preview deployment and start the app
+        if: steps.gate.outputs.enabled == 'true' && inputs.base_url == ''
         run: |
-          if [ -z "$CLERK_SECRET_KEY" ]; then echo "::error::Add the CLERK_SECRET_KEY and NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository secrets (Clerk development instance)."; exit 1; fi
-          npm run e2e
+          npx convex deploy --preview-create "pr-${{ github.event.number || github.run_id }}" --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'npm run build'
+          nohup npm start > next.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000 > /dev/null && break; sleep 2; done
+          echo "E2E_BASE_URL=http://localhost:3000" >> "$GITHUB_ENV"
+          echo "E2E_ADMIN_BOOTSTRAP=convex-cli" >> "$GITHUB_ENV"
+
+      - name: Use the URL given by hand
+        if: steps.gate.outputs.enabled == 'true' && inputs.base_url != ''
+        run: echo "E2E_BASE_URL=${{ inputs.base_url }}" >> "$GITHUB_ENV"
+
+      - name: Run browser tests
+        if: steps.gate.outputs.enabled == 'true'
+        run: npm run e2e
+
       - uses: actions/upload-artifact@v4
         if: failure()
-        with: { name: playwright-report, path: playwright-report/, retention-days: 7 }
+        with: { name: playwright-report, path: "playwright-report/\ntest-results/\nnext.log", retention-days: 7 }

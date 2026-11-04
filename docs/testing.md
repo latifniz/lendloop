@@ -23,7 +23,7 @@ Browser tests need `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (a
 - **Admin tests** are opt-in with `E2E_ADMIN_BOOTSTRAP=convex-cli`: roles cannot change from the browser, so the suite promotes a member through the Convex CLI's internal `users:setRole` against the deployment in `.env.local`. Use a dev deployment.
 - **n8n check** runs when `E2E_N8N_URL` is set: health endpoint plus a forged-webhook refusal.
 - The suite removes its listings and Clerk users afterwards. Requests and loans remain in the target Convex deployment, so prefer a dev deployment over production.
-- The `E2E (browser)` GitHub workflow is manual and expects the secrets above as repository secrets.
+- **CI.** The `E2E (browser)` workflow runs on every pull request: it deploys the branch to a throwaway Convex *preview* deployment, builds and starts the app, and runs the whole suite including the admin tests. It needs three repository secrets: `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (Clerk development instance) and `CONVEX_PREVIEW_DEPLOY_KEY` (Convex dashboard → project settings → *Preview deploy key*). In the Convex dashboard, set the preview deployments' default environment variables (`CLERK_JWT_ISSUER_DOMAIN`, `APP_URL`, and the n8n values or leave them unset so notifications fail visibly). Without the secrets the job prints a notice and passes without running. It can also be started by hand against any URL. **Not yet run in CI**: the same commands were verified locally, but the secrets-dependent path needs the secrets added first.
 
 ## How the tests were checked
 

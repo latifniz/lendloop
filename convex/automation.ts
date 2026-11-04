@@ -1,3 +1,4 @@
+import { recordAudit } from "./lib/audit";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { AUTOMATION, MS_PER_DAY } from "../lib/constants";
@@ -486,13 +487,14 @@ export const retryFailed = mutation({
   args: { eventId: v.id("automationEvents") },
   returns: v.null(),
   handler: async (ctx, { eventId }) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
     const event = await ctx.db.get(eventId);
     if (!event) throw errors.notFound("Automation event");
     if (event.status !== "failed" || !event.requestId) {
       throw errors.invalidState("Only failed notification events can be retried.");
     }
     await ctx.db.patch(eventId, { status: "pending", attempts: 0, errorCode: undefined, updatedAt: Date.now() });
+    await recordAudit(ctx, { actor: admin, action: "automation.retry_requested", targetType: "automationEvent", targetId: eventId, detail: `was=${event.errorCode ?? "failed"}` });
     await ctx.scheduler.runAfter(0, internal.automation.dispatch, { eventId });
     return null;
   },

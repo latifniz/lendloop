@@ -13,6 +13,13 @@ export const requestStatusValidator = v.union(
   v.literal("declined"),
   v.literal("cancelled"),
 );
+export const auditActionValidator = v.union(
+  v.literal("tool.removed_by_admin"),
+  v.literal("user.trusted_lender_changed"),
+  v.literal("user.role_changed"),
+  v.literal("automation.retry_requested"),
+);
+export const auditTargetValidator = v.union(v.literal("tool"), v.literal("user"), v.literal("automationEvent"));
 export const loanStatusValidator = v.union(
   v.literal("active"),
   v.literal("returned"),
@@ -129,6 +136,17 @@ export default defineSchema({
     .index("by_status", ["status"])
     // "Recent activity" for a recipient.
     .index("by_recipientUserId", ["recipientUserId"]),
+
+  // Append-only record of privileged actions. No e-mail addresses or message text: ids, an action name and a short detail.
+  auditLogs: defineTable({
+    // Absent when the action came from the Convex dashboard/CLI (internal functions), not from a signed-in admin.
+    actorId: v.optional(v.id("users")),
+    action: auditActionValidator,
+    targetType: auditTargetValidator,
+    targetId: v.string(),
+    detail: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_createdAt", ["createdAt"]),
 
   // Fixed-window counters protecting the n8n-facing HTTP endpoints.
   rateLimits: defineTable({

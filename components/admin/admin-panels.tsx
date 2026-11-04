@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Handshake, Package, ShieldCheck, Users } from "lucide-react";
+import { Activity, Handshake, History, Package, ShieldCheck, Users } from "lucide-react";
 import { usePaginatedQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
@@ -163,5 +163,35 @@ export function AdminAutomation() {
         )}
       />
     </>
+  );
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  "tool.removed_by_admin": "Removed a listing",
+  "user.trusted_lender_changed": "Changed a lender's trusted status",
+  "user.role_changed": "Changed a member's role",
+  "automation.retry_requested": "Retried a failed notification",
+};
+
+export function AdminAudit() {
+  const { results, status, loadMore } = usePaginatedQuery(api.audit.listRecent, {}, { initialNumItems: 20 });
+  return (
+    <PaginatedSection
+      results={results}
+      status={status}
+      loadMore={loadMore}
+      getKey={(entry) => entry._id}
+      empty={<EmptyState icon={History} title="No admin actions yet" description="Removals, role and trust changes and notification retries are recorded here." />}
+      renderItem={(entry) => (
+        <Card className="p-4">
+          <p className="font-medium">{AUDIT_LABELS[entry.action] ?? entry.action}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            By {entry.actorName} · {entry.targetType} <code className="break-all text-xs">{entry.targetId}</code>
+            {entry.detail ? ` · ${entry.detail}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{formatTimestamp(entry.createdAt)}</p>
+        </Card>
+      )}
+    />
   );
 }

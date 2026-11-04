@@ -1,3 +1,4 @@
+import { recordAudit } from "./lib/audit";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { TOOL_CATEGORIES } from "../lib/constants";
@@ -214,6 +215,9 @@ export const remove = mutation({
     }
 
     await ctx.db.patch(toolId, { status: "removed", updatedAt: now });
+    if (!isOwner) {
+      await recordAudit(ctx, { actor, action: "tool.removed_by_admin", targetType: "tool", targetId: toolId, detail: `cancelledPending=${pending.length}` });
+    }
     return null;
   },
 });

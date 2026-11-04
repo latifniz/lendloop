@@ -1,3 +1,4 @@
+import { recordAudit } from "./lib/audit";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -101,11 +102,12 @@ export const setTrustedLender = mutation({
   args: { userId: v.id("users"), isTrustedLender: v.boolean() },
   returns: v.null(),
   handler: async (ctx, { userId, isTrustedLender }) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
     const target = await ctx.db.get(userId);
     if (!target) throw errors.notFound("User");
     if (target.isTrustedLender !== isTrustedLender) {
       await ctx.db.patch(userId, { isTrustedLender, updatedAt: Date.now() });
+      await recordAudit(ctx, { actor: admin, action: "user.trusted_lender_changed", targetType: "user", targetId: userId, detail: `isTrustedLender=${isTrustedLender}` });
     }
     return null;
   },
@@ -125,7 +127,10 @@ export const setRole = internalMutation({
       .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
       .unique();
     if (!user) throw errors.notFound("User (they must sign in once first)");
-    await ctx.db.patch(user._id, { role, updatedAt: Date.now() });
+    if (user.role !== role) {
+      await ctx.db.patch(user._id, { role, updatedAt: Date.now() });
+      await recordAudit(ctx, { action: "user.role_changed", targetType: "user", targetId: user._id, detail: `role=${role}` });
+    }
     return null;
   },
 });

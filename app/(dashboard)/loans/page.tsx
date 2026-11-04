@@ -15,13 +15,20 @@ const ROLE_OPTIONS = [
   { value: "lender", label: "Lending" },
 ] as const;
 
+type LoanRole = (typeof ROLE_OPTIONS)[number]["value"];
+
 export default function MyLoansPage() {
-  const [role, setRole] = useState<"borrower" | "lender">("borrower");
-  const { results, status, loadMore } = usePaginatedQuery(api.loans.listMine, { role }, { initialNumItems: 10 });
+  const [chosenRole, setChosenRole] = useState<LoanRole | null>(null);
+  const borrowing = usePaginatedQuery(api.loans.listMine, { role: "borrower" }, { initialNumItems: 10 });
+  const lending = usePaginatedQuery(api.loans.listMine, { role: "lender" }, { initialNumItems: 10 });
+  // Until the member picks a tab, open the one that has loans (lenders just approved something).
+  const onlyLending = borrowing.status !== "LoadingFirstPage" && borrowing.results.length === 0 && lending.results.length > 0;
+  const role: LoanRole = chosenRole ?? (onlyLending ? "lender" : "borrower");
+  const { results, status, loadMore } = role === "borrower" ? borrowing : lending;
   return (
     <>
       <PageHeader title="My loans" description="Tools you've borrowed and tools you've lent out." />
-      <FilterChips label="Loan role" options={ROLE_OPTIONS} value={role} onChange={setRole} />
+      <FilterChips label="Loan role" options={ROLE_OPTIONS} value={role} onChange={setChosenRole} />
       <PaginatedSection
         results={results}
         status={status}

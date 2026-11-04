@@ -11,7 +11,8 @@ const cleanText = (label: string, max: number, min = 1) =>
   z
     .string()
     .trim()
-    .min(min, `${label} is required`)
+    .min(1, `${label} is required`)
+    .min(min, `${label} must be at least ${min} characters`)
     .max(max, `${label} must be at most ${max} characters`)
     .refine((value) => !CONTROL_CHARS.test(value), `${label} contains invalid characters`);
 

@@ -76,6 +76,11 @@ describe("input schemas", () => {
   ])("rejects %s", (_name, overrides) => {
     expect(toolInputSchema.safeParse({ ...tool, ...overrides }).success).toBe(false);
   });
+  it("says 'required' for an empty description and 'at least 10 characters' for a too-short one", () => {
+    const message = (description: string) => toolInputSchema.safeParse({ ...tool, description }).error?.issues[0]?.message;
+    expect(message("   ")).toBe("Description is required");
+    expect(message("tiny")).toBe("Description must be at least 10 characters");
+  });
   it("rejects fractional or non-day timestamps and over-long messages", () => {
     expect(requestInputSchema.safeParse({ startDate: DAY0, endDate: DAY0 + MS_PER_DAY }).success).toBe(true);
     expect(requestInputSchema.safeParse({ startDate: DAY0 + 1, endDate: DAY0 + MS_PER_DAY }).success).toBe(false);

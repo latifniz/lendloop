@@ -5,7 +5,7 @@ Neighborhood tool lending. Members list tools, browse what neighbors offer, requ
 **Live demo:** https://lendloop-coral.vercel.app (n8n runs at https://n8n.abdullatifnizamani.com).
 Sign-up uses a Clerk *development* instance, so you will see a "Development mode" banner. To try it without waiting for an email, register with any address containing `+clerk_test` (for example `you+clerk_test@example.com`); the verification code is always `424242`. Use two browsers (or profiles) to be both lender and borrower.
 
-More detail: [authorization matrix](docs/authorization.md) · [data map](docs/data-map.md) · [runbook](docs/runbook.md)
+More detail: [architecture](docs/architecture.md) · [n8n integration](docs/integration.md) · [design decisions](docs/decisions.md) · [security & threat model](docs/security.md) · [authorization matrix](docs/authorization.md) · [data map](docs/data-map.md) · [testing](docs/testing.md) · [runbook](docs/runbook.md)
 
 **Stack:** Next.js (App Router) · React · TypeScript (strict) · Tailwind + shadcn-style UI · Clerk (auth) · Convex (backend/DB) · n8n (automation) · Zod (validation)
 
@@ -145,8 +145,8 @@ To try it: sign in as user A and add a tool, sign in as user B (another browser 
 ### Tests
 
 ```bash
-npm run typecheck && npm run lint && npm test      # 179 unit and integration tests
-npm run e2e:install && npm run e2e                  # 23 browser tests (see below)
+npm run typecheck && npm run lint && npm test      # 247 unit, integration and component tests
+npm run e2e:install && npm run e2e                  # 31 browser tests (see below)
 ```
 
 Vitest with `convex-test` covers authorization, IDOR, business rules, the outbox, retries, the watchdog, the audit log and the HTTP endpoints. A second suite runs the exported n8n Code nodes (signature verification and signing, payload validation, email builders).

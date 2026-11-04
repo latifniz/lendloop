@@ -356,3 +356,67 @@ describe("failure handling nodes", () => {
     expect(first).toMatch(/^noexec-\d+$/);
   });
 });
+
+describe("n8n -> Convex request signing", () => {
+  const SIGNING_SECRET = "q".repeat(48);
+  const callNames = (workflow: Workflow) =>
+    workflow.nodes.filter((n) => n.type === "n8n-nodes-base.httpRequest" && String(n.parameters.url).includes("CONVEX_SITE_URL")).map((n) => n.name);
+  const targetsOf = (workflow: Workflow, source: string) =>
+    ((workflow.connections[source] as { main: Array<Array<{ node: string }>> } | undefined)?.main ?? []).flat().map((l) => l.node);
+  const sources = (workflow: Workflow, target: string) =>
+    Object.keys(workflow.connections).filter((source) => targetsOf(workflow, source).includes(target));
+  const sign = async (workflow: Workflow, call: string, context: Parameters<typeof runCodeNode>[2]) => {
+    const result = (await runCodeNode(workflow, `Sign: ${call}`, context)) as unknown as { json: { convexRequest: { body: string; headers: Record<string, string> } } };
+    return result.json.convexRequest;
+  };
+  const verifyNodes = { "Verify signature": { payload: { eventId: "request.created:abc123", deliveryId: "delivery-0001" } } };
+
+  it("puts exactly one Sign node in front of every Convex call, and nothing else", () => {
+    for (const workflow of Object.values(workflows)) {
+      const calls = callNames(workflow);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) expect(sources(workflow, call)).toEqual([`Sign: ${call}`]);
+    }
+  });
+
+  it("sends the exact signed bytes with the bearer token and the signature headers", () => {
+    for (const workflow of Object.values(workflows)) {
+      for (const call of callNames(workflow)) {
+        const params = workflow.nodes.find((n) => n.name === call)!.parameters;
+        expect(params.contentType).toBe("raw");
+        expect(params.body).toBe("={{ $json.convexRequest.body }}");
+        expect(String(params.jsonHeaders)).toContain("$env.N8N_CONVEX_API_SECRET");
+        expect(String(params.jsonHeaders)).toContain("$json.convexRequest.headers");
+      }
+    }
+  });
+
+  it("signs with the scheme Convex verifies (route in place of the delivery id)", async () => {
+    const request = await sign(workflows.notify, "Claim event", { env: { N8N_CONVEX_SIGNING_SECRET: SIGNING_SECRET }, json: {}, nodes: verifyNodes });
+    expect(JSON.parse(request.body)).toEqual({ eventId: "request.created:abc123", deliveryId: "delivery-0001" });
+    const timestamp = request.headers["X-LendLoop-Timestamp"]!;
+    expect(Math.abs(Number(timestamp) - Date.now() / 1000)).toBeLessThan(5);
+    expect(request.headers["X-LendLoop-Signature"]).toBe(await signWebhook({ secret: SIGNING_SECRET, timestamp, deliveryId: "/n8n/events/claim", rawBody: request.body }));
+  });
+
+  it("signs the body of a failure report, which depends on the previous node's output", async () => {
+    const request = await sign(workflows.notify, "Report failed", {
+      env: { N8N_CONVEX_SIGNING_SECRET: SIGNING_SECRET },
+      json: { errorCode: "SMTP_TIMEOUT", retryable: true },
+      nodes: verifyNodes,
+    });
+    expect(JSON.parse(request.body)).toMatchObject({ outcome: "failed", errorCode: "SMTP_TIMEOUT", retryable: true });
+    const timestamp = request.headers["X-LendLoop-Timestamp"]!;
+    expect(request.headers["X-LendLoop-Signature"]).toBe(await signWebhook({ secret: SIGNING_SECRET, timestamp, deliveryId: "/n8n/events/result", rawBody: request.body }));
+  });
+
+  it("adds no signature headers when no signing secret is configured (bearer-only mode)", async () => {
+    const request = await sign(workflows.overdue, "Run overdue sweep", { env: {}, json: {} });
+    expect(request.headers).toEqual({});
+    expect(request.body).toBe("{}");
+  });
+
+  it("never embeds the signing secret in the exported workflows", () => {
+    for (const workflow of Object.values(workflows)) expect(JSON.stringify(workflow)).not.toContain(SIGNING_SECRET);
+  });
+});

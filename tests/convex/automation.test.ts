@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTOMATION } from "../../lib/constants";
 import { api, internal } from "../../convex/_generated/api";
-import { verifyWebhookSignature } from "../../convex/lib/signing";
+import { signWebhook, verifyWebhookSignature } from "../../convex/lib/signing";
 import {
   FIXED_NOW,
   PAGE,
@@ -38,6 +38,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   for (const key of Object.keys(ENV)) delete process.env[key];
+  delete process.env.N8N_CONVEX_SIGNING_SECRET;
 });
 
 const authHeaders = { authorization: `Bearer ${API_SECRET}`, "content-type": "application/json" };
@@ -565,5 +566,66 @@ describe("stuck-event watchdog", () => {
     const id = await makeStuck({ status: "processing", attempts: 1, lastAttemptAt: FIXED_NOW - 60_000 }, 0);
     expect(await sweep()).toEqual({ redispatched: 0, timedOut: 0 });
     expect((await status(id)).status).toBe("processing");
+  });
+});
+
+describe("n8n -> Convex request signing (optional second factor)", () => {
+  const SIGNING_SECRET = "k".repeat(48);
+  const ROUTE = "/n8n/overdue/run";
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+  const signedHeaders = async (options: { route?: string; body?: string; offsetSeconds?: number; secret?: string } = {}) => {
+    const timestamp = String(nowSeconds() + (options.offsetSeconds ?? 0));
+    const signature = await signWebhook({ secret: options.secret ?? SIGNING_SECRET, timestamp, deliveryId: options.route ?? ROUTE, rawBody: options.body ?? "{}" });
+    return { ...authHeaders, "x-lendloop-timestamp": timestamp, "x-lendloop-signature": signature };
+  };
+
+  beforeEach(() => {
+    process.env.N8N_CONVEX_SIGNING_SECRET = SIGNING_SECRET;
+  });
+
+  it("accepts a correctly signed request", async () => {
+    expect((await post(ROUTE, "{}", await signedHeaders())).status).toBe(200);
+  });
+
+  it("rejects a bearer-only request once a signing secret is configured", async () => {
+    const response = await post(ROUTE, "{}");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "invalid_signature" });
+  });
+
+  it("still requires the bearer token, even with a valid signature", async () => {
+    const headers = { ...(await signedHeaders()), authorization: "Bearer wrong-token-wrong-token-wrong-token-1234" };
+    expect((await post(ROUTE, "{}", headers)).status).toBe(401);
+  });
+
+  it("rejects a tampered body", async () => {
+    expect((await post(ROUTE, '{"x":1}', await signedHeaders({ body: "{}" }))).status).toBe(401);
+  });
+
+  it("rejects a signature made for a different route (no cross-endpoint replay)", async () => {
+    expect((await post(ROUTE, "{}", await signedHeaders({ route: "/n8n/errors" }))).status).toBe(401);
+  });
+
+  it("rejects stale and future-dated timestamps", async () => {
+    const stale = await post(ROUTE, "{}", await signedHeaders({ offsetSeconds: -(AUTOMATION.signatureToleranceSeconds + 5) }));
+    expect(stale.status).toBe(401);
+    expect(await stale.json()).toEqual({ error: "stale_request" });
+    expect((await post(ROUTE, "{}", await signedHeaders({ offsetSeconds: AUTOMATION.signatureToleranceSeconds + 5 }))).status).toBe(401);
+  });
+
+  it("rejects a signature made with the wrong key, including the bearer secret", async () => {
+    expect((await post(ROUTE, "{}", await signedHeaders({ secret: "z".repeat(48) }))).status).toBe(401);
+    expect((await post(ROUTE, "{}", await signedHeaders({ secret: API_SECRET }))).status).toBe(401);
+  });
+
+  it("fails closed when the signing secret is configured but too short", async () => {
+    process.env.N8N_CONVEX_SIGNING_SECRET = "short";
+    expect((await post(ROUTE, "{}")).status).toBe(503);
+  });
+
+  it("keeps working bearer-only when no signing secret is configured", async () => {
+    delete process.env.N8N_CONVEX_SIGNING_SECRET;
+    expect((await post(ROUTE, "{}")).status).toBe(200);
   });
 });

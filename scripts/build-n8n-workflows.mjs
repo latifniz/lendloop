@@ -16,9 +16,6 @@ const uuid = (seed) => {
 
 const ERROR_WORKFLOW_ID = "lendloopErrorHandler";
 const SMTP = { smtp: { id: "lendloop-smtp", name: "LendLoop SMTP" } };
-const AUTH_HEADER = {
-  parameters: [{ name: "Authorization", value: "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}" }],
-};
 const RETRY = { retryOnFail: true, maxTries: 3, waitBetweenTries: 2000 };
 
 const node = (workflow, name, type, typeVersion, position, parameters, extra = {}) => ({
@@ -34,25 +31,54 @@ const node = (workflow, name, type, typeVersion, position, parameters, extra = {
 const codeNode = (workflow, name, position, file) =>
   node(workflow, name, "n8n-nodes-base.code", 2, position, { mode: "runOnceForAllItems", jsCode: code(file) });
 
-const convexCall = (workflow, name, position, path, bodyExpression, extra = {}) =>
-  node(
-    workflow,
-    name,
-    "n8n-nodes-base.httpRequest",
-    4.2,
-    position,
-    {
-      method: "POST",
-      url: `={{ $env.CONVEX_SITE_URL }}${path}`,
-      sendHeaders: true,
-      headerParameters: AUTH_HEADER,
-      sendBody: true,
-      specifyBody: "json",
-      jsonBody: `={{ JSON.stringify(${bodyExpression}) }}`,
-      options: { timeout: 10000 },
-    },
-    { ...RETRY, ...extra },
-  );
+// Every n8n -> Convex call is a pair: "Sign: <name>" builds the exact body bytes and (when
+// N8N_CONVEX_SIGNING_SECRET is set) an HMAC over them, then the HTTP node sends those bytes.
+const SIGN_PREFIX = "Sign: ";
+const signedCalls = new Set();
+
+const convexCall = (workflow, name, position, path, bodyExpression, extra = {}) => {
+  signedCalls.add(name);
+  const [x, y] = position;
+  return [
+    node(workflow, SIGN_PREFIX + name, "n8n-nodes-base.code", 2, [x, y + 130], {
+      mode: "runOnceForEachItem",
+      jsCode: `const route = ${JSON.stringify(path)};\nconst payload = ${bodyExpression};\n` + code("sign-request.js"),
+    }),
+    node(
+      workflow,
+      name,
+      "n8n-nodes-base.httpRequest",
+      4.2,
+      position,
+      {
+        method: "POST",
+        url: `={{ $env.CONVEX_SITE_URL }}${path}`,
+        sendHeaders: true,
+        specifyHeaders: "json",
+        jsonHeaders: "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
+        sendBody: true,
+        contentType: "raw",
+        rawContentType: "application/json",
+        body: "={{ $json.convexRequest.body }}",
+        options: { timeout: 10000 },
+      },
+      { ...RETRY, ...extra },
+    ),
+  ];
+};
+
+/** Sends every connection that targeted a Convex call through its Sign node first. */
+const withSigning = (connections) => {
+  const rewired = {};
+  for (const [source, value] of Object.entries(connections)) {
+    rewired[source] = {
+      main: value.main.map((branch) => branch.map((target) => (signedCalls.has(target.node) ? { ...target, node: SIGN_PREFIX + target.node } : target))),
+    };
+  }
+  for (const name of signedCalls) rewired[SIGN_PREFIX + name] = flow([name]);
+  signedCalls.clear();
+  return rewired;
+};
 
 const ifNode = (workflow, name, position, leftValue) =>
   node(workflow, name, "n8n-nodes-base.if", 2.2, position, {
@@ -134,7 +160,7 @@ function requestNotification() {
       options: { responseCode: "={{ $json.httpStatus }}" },
     }),
     ifNode(w, "Accepted?", [720, 300], "={{ $json.ok }}"),
-    convexCall(
+    ...convexCall(
       w,
       "Claim event",
       [960, 200],
@@ -145,9 +171,9 @@ function requestNotification() {
     node(w, "Skip (already handled)", "n8n-nodes-base.noOp", 1, [1440, 360], {}),
     codeNode(w, "Build email", [1440, 100], "build-request-email.js"),
     sendEmail(w, "Send email", [1680, 100]),
-    convexCall(w, "Report sent", [1920, 20], "/n8n/events/result", `{ eventId: ${eventId}, outcome: 'sent' }`),
+    ...convexCall(w, "Report sent", [1920, 20], "/n8n/events/result", `{ eventId: ${eventId}, outcome: 'sent' }`),
     codeNode(w, "Classify failure", [1920, 200], "classify-send-failure.js"),
-    convexCall(
+    ...convexCall(
       w,
       "Report failed",
       [2160, 200],
@@ -166,7 +192,7 @@ function requestNotification() {
     "Send email": flow(["Report sent"], ["Classify failure"]),
     "Classify failure": flow(["Report failed"]),
   };
-  return workflow("lendloopRequestNotify", "LendLoop - Request notifications", nodes, connections, baseSettings(ERROR_WORKFLOW_ID));
+  return workflow("lendloopRequestNotify", "LendLoop - Request notifications", nodes, withSigning(connections), baseSettings(ERROR_WORKFLOW_ID));
 }
 
 /* --------------------------- B. Overdue reminders -------------------------- */
@@ -177,16 +203,16 @@ function overdueReminders() {
     node(w, "Daily 09:00", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 200], {
       rule: { interval: [{ field: "cronExpression", expression: "0 9 * * *" }] },
     }),
-    convexCall(w, "Run overdue sweep", [240, 200], "/n8n/overdue/run", "{}"),
+    ...convexCall(w, "Run overdue sweep", [240, 200], "/n8n/overdue/run", "{}"),
     codeNode(w, "Split reminders", [480, 200], "split-reminders.js"),
-    convexCall(w, "Claim reminder", [720, 200], "/n8n/events/claim", `{ eventId: ${key} }`),
+    ...convexCall(w, "Claim reminder", [720, 200], "/n8n/events/claim", `{ eventId: ${key} }`),
     ifNode(w, "May send?", [960, 200], "={{ $json.proceed === true }}"),
     node(w, "Skip (already handled)", "n8n-nodes-base.noOp", 1, [1200, 360], {}),
     codeNode(w, "Build reminder", [1200, 100], "build-overdue-email.js"),
     sendEmail(w, "Send reminder", [1440, 100]),
-    convexCall(w, "Report sent", [1680, 20], "/n8n/events/result", `{ eventId: ${key}, outcome: 'sent' }`),
+    ...convexCall(w, "Report sent", [1680, 20], "/n8n/events/result", `{ eventId: ${key}, outcome: 'sent' }`),
     codeNode(w, "Classify failure", [1680, 200], "classify-send-failure.js"),
-    convexCall(
+    ...convexCall(
       w,
       "Report failed",
       [1920, 200],
@@ -204,7 +230,7 @@ function overdueReminders() {
     "Send reminder": flow(["Report sent"], ["Classify failure"]),
     "Classify failure": flow(["Report failed"]),
   };
-  return workflow("lendloopOverdue", "LendLoop - Overdue reminders", nodes, connections, baseSettings(ERROR_WORKFLOW_ID));
+  return workflow("lendloopOverdue", "LendLoop - Overdue reminders", nodes, withSigning(connections), baseSettings(ERROR_WORKFLOW_ID));
 }
 
 /* ------------------------------ C. Error handler --------------------------- */
@@ -213,7 +239,7 @@ function errorHandler() {
   const nodes = [
     node(w, "Error Trigger", "n8n-nodes-base.errorTrigger", 1, [0, 200], {}),
     codeNode(w, "Sanitize error", [240, 200], "sanitize-error.js"),
-    convexCall(
+    ...convexCall(
       w,
       "Record failure in Convex",
       [480, 200],
@@ -226,7 +252,7 @@ function errorHandler() {
     "Sanitize error": flow(["Record failure in Convex"]),
   };
   // No errorWorkflow here: a failing error handler must not trigger itself in a loop.
-  return workflow(ERROR_WORKFLOW_ID, "LendLoop - Error handler", nodes, connections, baseSettings(undefined));
+  return workflow(ERROR_WORKFLOW_ID, "LendLoop - Error handler", nodes, withSigning(connections), baseSettings(undefined));
 }
 
 mkdirSync(join(root, "n8n", "workflows"), { recursive: true });

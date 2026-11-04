@@ -24,20 +24,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/overdue/run\";\nconst payload = {};\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "c4a2ad24-95bb-4ab9-8150-b3cd906effa7",
+      "name": "Sign: Run overdue sweep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        330
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/overdue/run",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({}) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -70,20 +79,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/events/claim\";\nconst payload = { eventId: $('Split reminders').item.json.eventKey };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "ffb7fe35-726d-4c0e-86b4-db2f4ddaa91d",
+      "name": "Sign: Claim reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        330
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/claim",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ eventId: $('Split reminders').item.json.eventKey }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -190,20 +208,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/events/result\";\nconst payload = { eventId: $('Split reminders').item.json.eventKey, outcome: 'sent' };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "c47b25c7-52fb-420f-8a00-b9d4bf8aeb40",
+      "name": "Sign: Report sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        150
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/result",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ eventId: $('Split reminders').item.json.eventKey, outcome: 'sent' }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -236,20 +263,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/events/result\";\nconst payload = { eventId: $('Split reminders').item.json.eventKey, outcome: 'failed', errorCode: $json.errorCode, retryable: $json.retryable };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "7f49fa79-d30e-4178-82fb-c3345cc6aaf1",
+      "name": "Sign: Report failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        330
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/result",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ eventId: $('Split reminders').item.json.eventKey, outcome: 'failed', errorCode: $json.errorCode, retryable: $json.retryable }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -272,7 +308,7 @@
       "main": [
         [
           {
-            "node": "Run overdue sweep",
+            "node": "Sign: Run overdue sweep",
             "type": "main",
             "index": 0
           }
@@ -294,7 +330,7 @@
       "main": [
         [
           {
-            "node": "Claim reminder",
+            "node": "Sign: Claim reminder",
             "type": "main",
             "index": 0
           }
@@ -345,7 +381,7 @@
       "main": [
         [
           {
-            "node": "Report sent",
+            "node": "Sign: Report sent",
             "type": "main",
             "index": 0
           }
@@ -360,6 +396,50 @@
       ]
     },
     "Classify failure": {
+      "main": [
+        [
+          {
+            "node": "Sign: Report failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Run overdue sweep": {
+      "main": [
+        [
+          {
+            "node": "Run overdue sweep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Claim reminder": {
+      "main": [
+        [
+          {
+            "node": "Claim reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Report sent": {
+      "main": [
+        [
+          {
+            "node": "Report sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Report failed": {
       "main": [
         [
           {

@@ -2,8 +2,8 @@ import type { z } from "zod";
 import { AUTOMATION } from "../../lib/constants";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
-import { readInboundApiSecret } from "./env";
-import { constantTimeEqual } from "./signing";
+import { readInboundApiSecret, readInboundSigningSecret } from "./env";
+import { constantTimeEqual, verifyWebhookSignature } from "./signing";
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -17,7 +17,8 @@ export const respond = { json };
 /**
  * Shared gate for every n8n -> Convex endpoint. Order matters:
  * 1) authenticate (cheap, constant-time, no DB work for strangers),
- * 2) bound the body size, 3) rate limit, 4) validate the schema, 5) run.
+ * 2) bound the body size, 3) verify the request signature when a signing secret is configured,
+ * 4) rate limit, 5) validate the schema, 6) run.
  * Responses are intentionally terse; details go to server logs without payloads.
  */
 export async function handleN8nRequest<Schema extends z.ZodType>(
@@ -42,6 +43,26 @@ export async function handleN8nRequest<Schema extends z.ZodType>(
   const text = await request.text();
   if (new TextEncoder().encode(text).length > AUTOMATION.maxRequestBodyBytes) {
     return json({ error: "payload_too_large" }, 413);
+  }
+
+  const signing = readInboundSigningSecret();
+  if (!signing.ok) {
+    console.error("n8n endpoint disabled: signing secret is set but invalid", { route: options.route });
+    return json({ error: "integration_not_configured" }, 503);
+  }
+  if (signing.value) {
+    // Same v1 scheme as Convex -> n8n; the route takes the place of the delivery id so a signature
+    // for one endpoint cannot be replayed against another.
+    const verdict = await verifyWebhookSignature({
+      secret: signing.value,
+      timestamp: request.headers.get("x-lendloop-timestamp") ?? "",
+      deliveryId: new URL(request.url).pathname,
+      rawBody: text,
+      signature: request.headers.get("x-lendloop-signature") ?? "",
+      nowSeconds: Math.floor(Date.now() / 1000),
+      toleranceSeconds: AUTOMATION.signatureToleranceSeconds,
+    });
+    if (verdict !== "ok") return json({ error: verdict === "stale" ? "stale_request" : "invalid_signature" }, 401);
   }
 
   const limit = await ctx.runMutation(internal.rateLimit.consume, {

@@ -88,20 +88,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/events/claim\";\nconst payload = { eventId: $('Verify signature').first().json.payload.eventId, deliveryId: $('Verify signature').first().json.payload.deliveryId };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "6a576144-8299-4482-896b-6e248794e438",
+      "name": "Sign: Claim event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        330
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/claim",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ eventId: $('Verify signature').first().json.payload.eventId, deliveryId: $('Verify signature').first().json.payload.deliveryId }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -208,20 +217,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/events/result\";\nconst payload = { eventId: $('Verify signature').first().json.payload.eventId, outcome: 'sent' };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "0975e023-e10a-4eb4-83f1-1071ef1a1642",
+      "name": "Sign: Report sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        150
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/result",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ eventId: $('Verify signature').first().json.payload.eventId, outcome: 'sent' }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -254,20 +272,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/events/result\";\nconst payload = { eventId: $('Verify signature').first().json.payload.eventId, outcome: 'failed', errorCode: $json.errorCode, retryable: $json.retryable };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "2725d0d4-e533-42e4-8bd8-7dfaa39599a8",
+      "name": "Sign: Report failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        330
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/events/result",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ eventId: $('Verify signature').first().json.payload.eventId, outcome: 'failed', errorCode: $json.errorCode, retryable: $json.retryable }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -323,7 +350,7 @@
       "main": [
         [
           {
-            "node": "Claim event",
+            "node": "Sign: Claim event",
             "type": "main",
             "index": 0
           }
@@ -375,7 +402,7 @@
       "main": [
         [
           {
-            "node": "Report sent",
+            "node": "Sign: Report sent",
             "type": "main",
             "index": 0
           }
@@ -390,6 +417,39 @@
       ]
     },
     "Classify failure": {
+      "main": [
+        [
+          {
+            "node": "Sign: Report failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Claim event": {
+      "main": [
+        [
+          {
+            "node": "Claim event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Report sent": {
+      "main": [
+        [
+          {
+            "node": "Report sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Report failed": {
       "main": [
         [
           {

@@ -60,6 +60,19 @@ export function readInboundApiSecret(env: EnvSource = process.env): EnvResult<st
   return { ok: true, value: parsed.data.N8N_CONVEX_API_SECRET };
 }
 
+/**
+ * Optional second factor for n8n -> Convex calls. When set, every call must also carry an HMAC over
+ * the route and raw body, so a leaked bearer token alone cannot call the endpoints. Unset means
+ * bearer-only (the original behaviour); set-but-too-short is a configuration error, never a silent downgrade.
+ */
+export function readInboundSigningSecret(env: EnvSource = process.env): EnvResult<string | null> {
+  const raw = env.N8N_CONVEX_SIGNING_SECRET;
+  if (raw === undefined || raw === "") return { ok: true, value: null };
+  const parsed = z.object({ N8N_CONVEX_SIGNING_SECRET: secretSchema }).safeParse({ N8N_CONVEX_SIGNING_SECRET: raw });
+  if (!parsed.success) return { ok: false, problems: describe(parsed.error) };
+  return { ok: true, value: parsed.data.N8N_CONVEX_SIGNING_SECRET };
+}
+
 export function readAppUrl(env: EnvSource = process.env): string {
   const parsed = z.url().safeParse(env.APP_URL);
   if (!parsed.success) throw appError("INVALID_STATE", "APP_URL is not configured.");

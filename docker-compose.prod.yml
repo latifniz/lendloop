@@ -17,6 +17,8 @@ services:
       CONVEX_N8N_WEBHOOK_SECRET: ${CONVEX_N8N_WEBHOOK_SECRET:?}
       N8N_CONVEX_API_SECRET: ${N8N_CONVEX_API_SECRET:?}
       N8N_PUBLIC_URL: ${N8N_PUBLIC_URL:?https://n8n.example.com/}
+      # Optional second factor on n8n -> Convex calls; must match Convex's N8N_CONVEX_SIGNING_SECRET if set there.
+      N8N_CONVEX_SIGNING_SECRET: ${N8N_CONVEX_SIGNING_SECRET:-}
       # --- SMTP (Resend: smtp.resend.com / 465 / user "resend" / password = API key) ---
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-465}

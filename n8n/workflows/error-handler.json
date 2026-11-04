@@ -29,20 +29,29 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const route = \"/n8n/errors\";\nconst payload = { workflowName: $json.workflowName, executionId: $json.executionId, errorCategory: $json.errorCategory, ...($json.correlationId ? { correlationId: $json.correlationId } : {}) };\n// Prepended by scripts/build-n8n-workflows.mjs: `const route = \"/n8n/...\"; const payload = { ... };`\n// Produces the exact bytes to send and, when N8N_CONVEX_SIGNING_SECRET is set, an HMAC over them.\n// Scheme (v1, same as Convex -> n8n): \"v1=\" + hex(HMAC_SHA256(secret, \"v1:\" + timestamp + \":\" + route + \":\" + body)).\nconst crypto = require('crypto');\n\nconst body = JSON.stringify(payload);\nconst headers = {};\nconst secret = $env.N8N_CONVEX_SIGNING_SECRET;\nif (secret) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const digest = crypto.createHmac('sha256', secret).update(`v1:${timestamp}:${route}:${body}`).digest('hex');\n  headers['X-LendLoop-Timestamp'] = timestamp;\n  headers['X-LendLoop-Signature'] = `v1=${digest}`;\n}\n\nreturn { json: { ...$json, convexRequest: { body, headers } } };\n"
+      },
+      "id": "004e1420-6a80-46b1-8192-53d699e8876f",
+      "name": "Sign: Record failure in Convex",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        330
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ $env.CONVEX_SITE_URL }}/n8n/errors",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $env.N8N_CONVEX_API_SECRET }}"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.N8N_CONVEX_API_SECRET, ...$json.convexRequest.headers }) }}",
         "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflowName: $json.workflowName, executionId: $json.executionId, errorCategory: $json.errorCategory, ...($json.correlationId ? { correlationId: $json.correlationId } : {}) }) }}",
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.convexRequest.body }}",
         "options": {
           "timeout": 10000
         }
@@ -73,6 +82,17 @@
       ]
     },
     "Sanitize error": {
+      "main": [
+        [
+          {
+            "node": "Sign: Record failure in Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: Record failure in Convex": {
       "main": [
         [
           {

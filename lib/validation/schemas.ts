@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { MS_PER_DAY, REQUEST_LIMITS, TOOL_CATEGORIES, TOOL_CONDITIONS, TOOL_LIMITS } from "../constants";
 
+// Zod's JIT fast path probes `new Function()`, which the Content-Security-Policy (no 'unsafe-eval') blocks.
+// Our schemas are tiny, so skipping the probe costs nothing and keeps the browser console clean.
+z.config({ jitless: true });
+
 /**
  * Control characters (except tab/newline) have no place in listing text and can
  * corrupt emails or logs downstream, so they are rejected rather than stripped.

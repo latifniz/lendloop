@@ -2,6 +2,11 @@
 
 Neighborhood tool lending. Members list tools, browse what neighbors offer, request a tool for a date range, approve or decline requests, and mark tools as returned. n8n sends the notification emails and a daily overdue reminder.
 
+**Live demo:** https://lendloop-coral.vercel.app (n8n runs at https://n8n.abdullatifnizamani.com).
+Sign-up uses a Clerk *development* instance, so you will see a "Development mode" banner. To try it without waiting for an email, register with any address containing `+clerk_test` (for example `you+clerk_test@example.com`); the verification code is always `424242`. Use two browsers (or profiles) to be both lender and borrower.
+
+More detail: [authorization matrix](docs/authorization.md) · [data map](docs/data-map.md) · [runbook](docs/runbook.md)
+
 **Stack:** Next.js (App Router) · React · TypeScript (strict) · Tailwind + shadcn-style UI · Clerk (auth) · Convex (backend/DB) · n8n (automation) · Zod (validation)
 
 ## Architecture
@@ -46,6 +51,7 @@ Emails: new request (to lender), approved / declined (to borrower), cancelled (t
 - **Event states:** `pending → processing → sent | failed | skipped`. An HTTP 2xx from n8n only means "accepted"; the event is `sent` only when n8n reports the email result. No report within 5 minutes → `failed` (`ACK_TIMEOUT`).
 - **Retries:** Convex retries up to 5 times with exponential backoff (network errors, timeouts, 408/425/429/5xx). n8n retries HTTP and email nodes 3 times and classifies SMTP failures.
 - **Idempotency:** deterministic event keys (`request.<type>:<id>`, `overdue-reminder:<loanId>:<date>`), enforced in Convex. Re-running an n8n execution cannot send a second email because `claim` refuses events already sent.
+- **Watchdog:** a Convex cron runs every 10 minutes and re-arms events whose scheduled dispatch, retry or timeout never ran, so nothing sits "pending" forever unnoticed.
 - **Visibility:** admins see every event, with status, attempts, error code and correlation id, under **Admin → Automation**, and can retry failed ones.
 
 ## Local setup
@@ -129,10 +135,13 @@ To try it: sign in as user A and add a tool, sign in as user B (another browser 
 ### Tests
 
 ```bash
-npm run typecheck && npm run lint && npm test
+npm run typecheck && npm run lint && npm test      # 179 unit and integration tests
+npm run e2e:install && npm run e2e                  # 23 browser tests (see below)
 ```
 
-Vitest with `convex-test` covers authorization, IDOR, business rules, the outbox, retries and the HTTP endpoints. A second suite runs the exported n8n Code nodes (signature verification, payload validation, email builders).
+Vitest with `convex-test` covers authorization, IDOR, business rules, the outbox, retries, the watchdog, the audit log and the HTTP endpoints. A second suite runs the exported n8n Code nodes (signature verification and signing, payload validation, email builders).
+
+The Playwright suite drives a running app: sign-up with an emailed code, listings, requests, approval, double-booking refusal, cancel, return, authorization checks, the public tool list's fields and the CSP headers. It needs a Clerk **development** instance (`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`) and `E2E_BASE_URL` (default `http://localhost:3000`). It removes its listings and Clerk users afterwards, but requests and loans remain in the target Convex deployment, so prefer a dev deployment. The GitHub workflow `E2E (browser)` runs it manually against a URL you give it.
 
 ## Environment variables
 
@@ -149,6 +158,7 @@ Annotated template: [.env.example](.env.example).
 | `N8N_WEBHOOK_URL` | Convex env | Where Convex posts signed events (https, or http for localhost) |
 | `CONVEX_N8N_WEBHOOK_SECRET` | Convex env + Docker `.env` | HMAC key, Convex → n8n (≥ 32 chars) |
 | `N8N_CONVEX_API_SECRET` | Convex env + Docker `.env` | Bearer secret, n8n → Convex (≥ 32 chars, different from the HMAC key) |
+| `N8N_CONVEX_SIGNING_SECRET` | Convex env + Docker `.env` (**optional**) | When set, n8n → Convex calls must also carry an HMAC over route + body (≥ 32 chars, different from the other two) |
 | `APP_URL` | Convex env | Links inside notification emails |
 | `CONVEX_SITE_URL` | Docker `.env` | Base URL of the Convex HTTP actions |
 | `N8N_ENCRYPTION_KEY` | Docker `.env` | Encrypts n8n's stored credentials |
@@ -163,19 +173,27 @@ Server secrets are never `NEXT_PUBLIC_*`, never appear in the exported workflows
 - **Public data minimization.** The landing page uses a dedicated query whose `returns` validator is an allow-list of `{name, category}`; Convex rejects any extra field, so a later change cannot leak owners or contact details. Other members see only a display name and a "trusted lender" flag; email and Clerk ids appear only in your own record, the admin member list, and the single payload to n8n for the intended recipient.
 - **Convex → n8n webhook is HMAC-signed.** `v1=HMAC-SHA256(secret, "v1:" + timestamp + ":" + deliveryId + ":" + rawBody)`, computed over the **raw body bytes** (the Webhook node has Raw Body enabled). Constant-time comparison, ±300 s timestamp window, strict payload validation, and the delivery id in the body must match the signed header.
 - **Replay protection and idempotency.** The 5-minute window bounds a captured request; Convex accepts each signed `deliveryId` once at the `claim` step and grants a short lease per event, so a replayed or duplicated delivery cannot send a second email. Event keys are deterministic.
-- **n8n → Convex** uses a separate bearer secret (the HMAC key is rejected there). Checks run in order: configured → bearer (constant-time) → body size cap → rate limit → JSON → strict Zod schema. Nothing is processed before authentication.
+- **n8n → Convex** uses a separate bearer secret (the HMAC key is rejected there). Checks run in order: configured → bearer (constant-time) → body size cap → signature → rate limit → JSON → strict Zod schema. Nothing is processed before authentication. With the optional `N8N_CONVEX_SIGNING_SECRET`, each call must also carry `v1=HMAC-SHA256(secret, "v1:" + timestamp + ":" + route + ":" + body)` within ±300 s, so a leaked bearer token alone is not enough. The route stands in for the delivery id, so a signature cannot be replayed against another endpoint.
 - **Minimal payloads.** One recipient per event; no Convex/Clerk ids, tokens or profiles. The borrower's note goes only to the lender on a new request. `automationEvents` store ids, statuses and coarse error codes, never email addresses, message text or signatures. The error workflow reports only workflow name, execution id and a category, never free-text errors.
 - **Input validation and safe errors.** Convex argument validators plus shared Zod schemas (length limits, enums, whole-day dates, control characters rejected). Business errors are `{code, message}` with user-safe text; unexpected errors show a generic message. Email HTML escapes user text and strips newlines from subjects.
 - **Secrets** live only in env vars (Convex dashboard, git-ignored `.env` files). Exported workflows contain `$env` references and a credential name, verified by a test.
-- **Browser hardening:** `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- **Browser hardening:** a Content-Security-Policy built from the Clerk and Convex hosts (no `'unsafe-eval'` in production; tested in a browser with no violations), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- **Audit trail.** Admin listing removals, trusted-lender changes, role changes made from the CLI and notification retries are written to an append-only `auditLogs` table in the same transaction as the action (ids and an action name only), and shown under **Admin → Audit log**.
 
 ## What I would change to run this in production
 
 - **n8n hosting:** run it behind HTTPS with only the webhook path public and the editor behind SSO/VPN; use queue mode with Postgres and Redis (or n8n Cloud) for scale. [docker-compose.prod.yml](docker-compose.prod.yml) is a single-container starting point that bakes in the workflows.
-- **Secrets:** a managed secret store with rotation (n8n currently reads secrets through `$env`, so anyone who can edit workflows can read them), per-environment secrets, and two active HMAC keys during rotation.
-- **Sender-side hardening:** HMAC-sign n8n → Convex calls as well as using the bearer token, so a leaked token alone is not enough; per-IP limits or a WAF in front of `/n8n/*`.
-- **Monitoring:** alerts on failed events and `ACK_TIMEOUT` rates, a stuck-event watchdog, uptime checks on n8n `/healthz`, log shipping, and frontend error tracking.
-- **Backups:** scheduled Convex snapshot exports with a tested restore; back up the n8n database and `N8N_ENCRYPTION_KEY` separately.
-- **Data retention:** scheduled cleanup of `automationEvents` and `rateLimits`, deletion on account removal, and a privacy notice for the email provider. n8n's failed executions can contain the recipient email and note, so treat its database as personal data.
-- **Access control:** audit logging for admin actions (role changes and listing removals are not logged today).
-- **Known gaps:** no browser E2E suite in CI; Clerk profile data is refreshed on sign-in only (no webhook sync); a duplicate email is possible if n8n sends and then crashes before reporting (at-least-once delivery with a Convex-side duplicate guard).
+- **On AWS (Fluence's stack).** I would keep Convex and Clerk, which are the managed parts of this design, and move the self-hosted pieces to AWS. This is a plan, not something I built or tested:
+  - **n8n:** ECS Fargate behind an ALB with HTTPS, queue mode with RDS Postgres and ElastiCache Redis; only the webhook path is public, the editor sits behind SSO or a VPN.
+  - **Secrets:** Secrets Manager with rotation, injected into the task, instead of n8n reading them from `$env`; per-environment secrets and two active HMAC keys during rotation.
+  - **Email:** Amazon SES instead of a generic SMTP provider.
+  - **Frontend:** Amplify Hosting, or CloudFront in front of the Next.js app.
+  - **Logging, audit and alerts:** CloudWatch logs and alarms on failed events and `ACK_TIMEOUT` rates, CloudTrail for infrastructure changes, and Datadog or Sentry for frontend and application errors.
+  - **Backups:** AWS Backup for the n8n database, with `N8N_ENCRYPTION_KEY` stored separately; scheduled Convex snapshot exports with a tested restore.
+  - **Auth alternative:** Cognito could replace Clerk if one AWS account had to own everything; I kept Clerk for speed and its hosted flows.
+- **Clerk:** move from the development instance to a production instance on a custom domain (Clerk does not allow `*.vercel.app` in production), which also removes the "Development mode" banner and the bot-check friction for scripted testing.
+- **Make the second factor mandatory:** `N8N_CONVEX_SIGNING_SECRET` is optional so existing deployments keep working; in production I would require it, plus per-IP limits or a WAF in front of `/n8n/*`.
+- **Monitoring:** page on failed events and `ACK_TIMEOUT` rates (the watchdog recovers lost jobs but does not alert), uptime checks on n8n `/healthz` and the Convex site URL, and log shipping.
+- **Data retention:** scheduled cleanup of `automationEvents`, `auditLogs` and `rateLimits`, deletion on account removal, and a privacy notice for the email provider. n8n's failed executions can contain the recipient email and note, so treat its database as personal data.
+- **Access control:** least-privilege n8n users and two-person approval to grant admin (role changes are audit-logged now, but any operator with CLI access can still grant admin).
+- **Known gaps:** the browser suite is not run on every push (it needs a Clerk dev instance and writes to a deployment); Clerk profile data is refreshed on sign-in only (no webhook sync); a duplicate email is possible if n8n sends and then crashes before reporting (at-least-once delivery with a Convex-side duplicate guard).

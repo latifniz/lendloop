@@ -9,6 +9,16 @@ More detail: [authorization matrix](docs/authorization.md) · [data map](docs/da
 
 **Stack:** Next.js (App Router) · React · TypeScript (strict) · Tailwind + shadcn-style UI · Clerk (auth) · Convex (backend/DB) · n8n (automation) · Zod (validation)
 
+## Screenshots
+
+| | |
+| --- | --- |
+| **Public page:** tagline, sign-in call to action, and a name + category-only tool list<br>![Landing page](docs/screenshots/01-landing.jpg) | **Browse tools:** category filters, lender name, trusted-lender badge, "on loan until"<br>![Browse tools](docs/screenshots/02-browse-tools.jpg) |
+| **Request dialog:** date range (max 30 days) and a note<br>![Request dialog](docs/screenshots/03-request-dialog.jpg) | **Incoming requests:** the lender approves or declines<br>![Incoming requests](docs/screenshots/04-incoming-requests.jpg) |
+| **My loans:** the lender marks a loan returned<br>![My loans](docs/screenshots/05-my-loans.jpg) | **Admin audit log:** who did what, including CLI role changes<br>![Audit log](docs/screenshots/08-admin-audit-log.jpg) |
+
+More: [my listings](docs/screenshots/06-my-listings.jpg) · [admin listings](docs/screenshots/07-admin-listings.jpg) · [mobile menu](docs/screenshots/09-mobile-menu.jpg)
+
 ## Architecture
 
 ```mermaid

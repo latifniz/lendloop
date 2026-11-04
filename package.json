@@ -49,7 +49,7 @@
     "convex-test": "^0.0.67",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.4",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.1.3",
     "tailwindcss": "^4.3.4",
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"

@@ -433,6 +433,71 @@ describe("daily overdue reminders", () => {
     expect((await reminderEvents())[0]).toMatchObject({ status: "skipped", errorCode: "LOAN_RETURNED" });
   });
 
+  describe("recent reminder activity on each loan", () => {
+    const loansFor = async (user: Awaited<ReturnType<typeof setup>>["lender"], role: "lender" | "borrower") =>
+      (await user.asUser.query(api.loans.listMine, { role, paginationOpts: PAGE })).page;
+
+    it("shows no activity until a reminder exists", async () => {
+      const { lender } = await overdueLoan();
+      expect((await loansFor(lender, "lender"))[0]?.lastReminder).toBeNull();
+    });
+
+    it("shows a queued reminder to both the lender and the borrower, then 'sent' with its time", async () => {
+      const { lender, borrower, loanId } = await overdueLoan();
+      vi.setSystemTime(dayOffset(4));
+      const key = `overdue-reminder:${loanId}:2026-11-07`;
+      await runSweep();
+      expect((await loansFor(lender, "lender"))[0]?.lastReminder).toMatchObject({ status: "pending" });
+      expect((await loansFor(borrower, "borrower"))[0]?.lastReminder).toMatchObject({ status: "pending" });
+
+      await post("/n8n/events/claim", { eventId: key });
+      vi.setSystemTime(dayOffset(4) + 3600 * 1000);
+      await post("/n8n/events/result", { eventId: key, outcome: "sent" });
+      expect((await loansFor(borrower, "borrower"))[0]?.lastReminder).toEqual({ status: "sent", at: dayOffset(4) + 3600 * 1000 });
+    });
+
+    it("shows a failed reminder so the problem is visible, not silent", async () => {
+      const { borrower, loanId } = await overdueLoan();
+      vi.setSystemTime(dayOffset(4));
+      const key = `overdue-reminder:${loanId}:2026-11-07`;
+      await runSweep();
+      await post("/n8n/events/claim", { eventId: key });
+      await post("/n8n/events/result", { eventId: key, outcome: "failed", errorCode: "SMTP_TIMEOUT", retryable: true });
+      expect((await loansFor(borrower, "borrower"))[0]?.lastReminder).toMatchObject({ status: "failed" });
+    });
+
+    it("shows the latest reminder when there have been several days of them", async () => {
+      const { borrower, loanId } = await overdueLoan();
+      vi.setSystemTime(dayOffset(4));
+      const first = `overdue-reminder:${loanId}:2026-11-07`;
+      await runSweep();
+      await post("/n8n/events/claim", { eventId: first });
+      await post("/n8n/events/result", { eventId: first, outcome: "sent" });
+      vi.setSystemTime(dayOffset(5));
+      await runSweep();
+      expect((await loansFor(borrower, "borrower"))[0]?.lastReminder).toMatchObject({ status: "pending", at: dayOffset(5) });
+    });
+
+    it("does not show a reminder that was skipped because the loan came back", async () => {
+      const { lender, loanId } = await overdueLoan();
+      vi.setSystemTime(dayOffset(4));
+      const key = (await runSweep()).reminders[0].eventKey;
+      await lender.asUser.mutation(api.loans.markReturned, { loanId });
+      await post("/n8n/events/claim", { eventId: key });
+      expect((await loansFor(lender, "lender"))[0]?.lastReminder).toBeNull();
+    });
+
+    it("is also on the admin loan list", async () => {
+      const { loanId } = await overdueLoan();
+      const admin = await createUser(t, "admin");
+      await makeAdmin(t, admin);
+      vi.setSystemTime(dayOffset(4));
+      await runSweep();
+      const [row] = (await admin.asUser.query(api.loans.listForAdmin, { paginationOpts: PAGE })).page;
+      expect(row).toMatchObject({ _id: loanId, lastReminder: { status: "pending" } });
+    });
+  });
+
   it("keeps a failed reminder retryable within the day but stops after the attempt limit", async () => {
     const { loanId } = await overdueLoan();
     vi.setSystemTime(dayOffset(4));

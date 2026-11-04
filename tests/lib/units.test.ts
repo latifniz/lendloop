@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_DAY } from "../../lib/constants";
+import { formatRelativeTime } from "../../lib/utils/format";
 import { getErrorCode, getUserMessage } from "../../lib/utils/app-error";
 import { daysOverdue, formatIsoDay, intervalsOverlap, isPastDue, parseIsoDay, validateDateRange } from "../../lib/utils/dates";
 import { requestInputSchema, toolInputSchema } from "../../lib/validation/schemas";
@@ -163,5 +164,28 @@ describe("integration environment validation", () => {
     expect(weak.ok).toBe(false);
     expect(JSON.stringify(weak)).not.toContain("tooshort");
     expect(readOutboundConfig({}).ok).toBe(false);
+  });
+});
+
+describe("relative time", () => {
+  const now = Date.UTC(2026, 10, 10, 12, 0, 0);
+  it.each([
+    [0, "just now"],
+    [59_000, "just now"],
+    [60_000, "1 minute ago"],
+    [5 * 60_000, "5 minutes ago"],
+    [59 * 60_000, "59 minutes ago"],
+    [60 * 60_000, "1 hour ago"],
+    [3 * 3_600_000, "3 hours ago"],
+    [23 * 3_600_000, "23 hours ago"],
+    [24 * 3_600_000, "1 day ago"],
+    [2 * 86_400_000, "2 days ago"],
+    [30 * 86_400_000, "30 days ago"],
+  ])("formats an age of %i ms as %s", (age, expected) => {
+    expect(formatRelativeTime(now - age, now)).toBe(expected);
+  });
+
+  it("never shows a negative age for a timestamp slightly in the future", () => {
+    expect(formatRelativeTime(now + 5000, now)).toBe("just now");
   });
 });

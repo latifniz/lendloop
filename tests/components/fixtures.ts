@@ -29,6 +29,7 @@ export const loanRow = (overrides: Partial<LoanRow> = {}): LoanRow =>
     endDate: START + 2 * DAY,
     returnedAt: null,
     daysOverdue: 0,
+    lastReminder: null,
     viewerRole: "lender",
     ...overrides,
   }) as LoanRow;

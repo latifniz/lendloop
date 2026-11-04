@@ -4,6 +4,7 @@ import { Activity, Handshake, History, Package, ShieldCheck, Users } from "lucid
 import { usePaginatedQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { ReminderNote } from "@/components/loans/reminder-note";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FilterChips } from "@/components/shared/filter-chips";
@@ -111,6 +112,7 @@ export function AdminLoans() {
               </div>
               <StatusBadge status={loan.status} />
             </div>
+            <ReminderNote reminder={loan.lastReminder} />
           </Card>
         )}
       />

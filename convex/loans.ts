@@ -19,6 +19,14 @@ export function effectiveLoanStatus(loan: Doc<"loans">, now: number): Doc<"loans
   return loan.status;
 }
 
+/** The most recent overdue-reminder notification for a loan, so the app can show "Reminder sent 2 days ago". */
+async function latestReminder(ctx: QueryCtx, loanId: Doc<"loans">["_id"]) {
+  const events = await ctx.db.query("automationEvents").withIndex("by_loanId", (q) => q.eq("loanId", loanId)).order("desc").take(5);
+  const event = events.find((candidate) => candidate.eventType === "loan.overdue_reminder" && candidate.status !== "skipped");
+  if (!event) return null;
+  return { status: event.status, at: event.sentAt ?? event.createdAt };
+}
+
 async function toView(ctx: QueryCtx, loans: Doc<"loans">[]) {
   const now = Date.now();
   const toolIds = [...new Set(loans.map((loan) => loan.toolId))];
@@ -29,8 +37,9 @@ async function toView(ctx: QueryCtx, loans: Doc<"loans">[]) {
   ]);
   const toolById = new Map(toolIds.map((id, index) => [id, tools[index] ?? null]));
   const userById = new Map(userIds.map((id, index) => [id, users[index] ?? null]));
+  const reminders = await Promise.all(loans.map((loan) => latestReminder(ctx, loan._id)));
 
-  return loans.map((loan) => {
+  return loans.map((loan, index) => {
     const status = effectiveLoanStatus(loan, now);
     return {
       _id: loan._id,
@@ -42,6 +51,7 @@ async function toView(ctx: QueryCtx, loans: Doc<"loans">[]) {
       status,
       daysOverdue: status === "overdue" ? daysOverdue(loan.endDate, now) : 0,
       returnedAt: loan.returnedAt,
+      lastReminder: reminders[index] ?? null,
     };
   });
 }

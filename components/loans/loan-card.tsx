@@ -3,6 +3,7 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ReminderNote } from "./reminder-note";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,6 +34,7 @@ export function LoanCard({ loan }: { loan: LoanRow }) {
           <div><dt className="text-xs text-muted-foreground">Returned</dt><dd className="flex items-center gap-1"><CheckCircle2 className="size-3.5 text-primary" aria-hidden />{formatTimestamp(loan.returnedAt)}</dd></div>
         ) : null}
       </dl>
+      <ReminderNote reminder={loan.lastReminder} />
       {isOverdue ? (
         <p role="status" className="mt-3 flex items-center gap-2 text-sm font-medium text-red-800">
           <AlertTriangle className="size-4" aria-hidden />

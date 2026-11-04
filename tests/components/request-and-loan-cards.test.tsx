@@ -15,6 +15,7 @@ vi.mock("convex/react", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { LoanCard } from "../../components/loans/loan-card";
+import { reminderText } from "../../components/loans/reminder-note";
 import { RequestCard } from "../../components/requests/request-card";
 
 beforeEach(() => {
@@ -123,5 +124,30 @@ describe("LoanCard", () => {
     render(<LoanCard loan={loanRow({ status: "returned", returnedAt: Date.UTC(2026, 10, 12, 9, 30) })} />);
     expect(screen.getByText("Returned", { selector: "dt" })).toBeTruthy();
     expect(button("Mark as returned")).toBeNull();
+  });
+});
+
+describe("loan reminder activity", () => {
+  const DAY = 86_400_000;
+
+  it("shows 'Reminder sent 2 days ago' on the loan", () => {
+    render(<LoanCard loan={loanRow({ status: "overdue", daysOverdue: 2, lastReminder: { status: "sent", at: Date.now() - 2 * DAY } })} />);
+    expect(screen.getByText("Reminder sent 2 days ago")).toBeTruthy();
+  });
+
+  it("shows nothing when no reminder has been sent", () => {
+    render(<LoanCard loan={loanRow({ lastReminder: null })} />);
+    expect(screen.queryByText(/reminder/i)).toBeNull();
+  });
+
+  it.each([
+    [{ status: "sent", at: 0 }, 2 * DAY, "Reminder sent 2 days ago"],
+    [{ status: "pending", at: 0 }, 0, "Reminder queued"],
+    [{ status: "processing", at: 0 }, 0, "Reminder queued"],
+    [{ status: "failed", at: 0 }, 0, "Reminder not delivered yet; it will be retried"],
+    [{ status: "skipped", at: 0 }, 0, null],
+    [null, 0, null],
+  ] as const)("describes %j as %s", (reminder, now, expected) => {
+    expect(reminderText(reminder as Parameters<typeof reminderText>[0], now)).toBe(expected);
   });
 });

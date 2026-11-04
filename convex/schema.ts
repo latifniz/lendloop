@@ -138,7 +138,9 @@ export default defineSchema({
     // Admin monitoring (failed / stuck events), newest first.
     .index("by_status", ["status"])
     // "Recent activity" for a recipient.
-    .index("by_recipientUserId", ["recipientUserId"]),
+    .index("by_recipientUserId", ["recipientUserId"])
+    // "Reminder sent 2 days ago" on each loan.
+    .index("by_loanId", ["loanId"]),
 
   // Append-only record of privileged actions. No e-mail addresses or message text: ids, an action name and a short detail.
   auditLogs: defineTable({
